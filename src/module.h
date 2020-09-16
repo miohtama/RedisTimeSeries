@@ -16,6 +16,7 @@ extern RedisModuleType *SeriesType;
 int CreateTsKey(RedisModuleCtx *ctx, RedisModuleString *keyName,
                 CreateCtx *cCtx, Series **series, RedisModuleKey **key);
 
-int GetSeries(RedisModuleCtx *ctx, RedisModuleString *keyName, RedisModuleKey **key, Series **series, int mode);
+int GetSeries(RedisModuleCtx *ctx, RedisModuleString *keyName, RedisModuleKey **key, Series **series, int mode,
+              bool shouldResponse);
 
 #endif

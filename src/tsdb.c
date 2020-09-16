@@ -122,7 +122,7 @@ void CleanLastDeletedSeries(RedisModuleCtx *ctx, RedisModuleString *key) {
             RedisModuleKey *seriesKey;
             Series *dstSeries;
             const int status = GetSeries(
-                ctx, rule->destKey, &seriesKey, &dstSeries, REDISMODULE_READ | REDISMODULE_WRITE);
+                    ctx, rule->destKey, &seriesKey, &dstSeries, REDISMODULE_READ | REDISMODULE_WRITE, TRUE);
             if (status) {
                 SeriesDeleteSrcRule(dstSeries, lastDeletedSeries->keyName);
                 RedisModule_CloseKey(seriesKey);
@@ -136,7 +136,7 @@ void CleanLastDeletedSeries(RedisModuleCtx *ctx, RedisModuleString *key) {
                                          lastDeletedSeries->srcKey,
                                          &seriesKey,
                                          &srcSeries,
-                                         REDISMODULE_READ | REDISMODULE_WRITE);
+                                         REDISMODULE_READ | REDISMODULE_WRITE, TRUE);
             if (status) {
                 SeriesDeleteRule(srcSeries, lastDeletedSeries->keyName);
                 RedisModule_CloseKey(seriesKey);
@@ -243,7 +243,7 @@ static void upsertCompaction(Series *series, UpsertCtx *uCtx) {
 
             RedisModuleKey *key;
             Series *destSeries;
-            if (!GetSeries(ctx, rule->destKey, &key, &destSeries, REDISMODULE_READ)) {
+            if (!GetSeries(ctx, rule->destKey, &key, &destSeries, REDISMODULE_READ, TRUE)) {
                 RedisModule_Log(ctx, "verbose", "%s", "Failed to retrieve downsample series");
                 continue;
             }
