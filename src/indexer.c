@@ -8,6 +8,7 @@
 #include "consts.h"
 
 #include <limits.h>
+#include <pthread.h>
 #include <string.h>
 #include <rmutil/alloc.h>
 
@@ -21,6 +22,8 @@ typedef enum
     Indexer_Add,
     Indexer_Remove
 } INDEXER_OPERATION_T;
+
+pthread_rwlock_t lock_rw = PTHREAD_RWLOCK_INITIALIZER;
 
 void IndexInit() {
     labelsIndex = RedisModule_CreateDict(NULL);
@@ -141,8 +144,10 @@ void IndexOperation(RedisModuleCtx *ctx,
             RedisModule_CreateStringPrintf(ctx, KV_PREFIX, key_string, value_string);
         RedisModuleString *indexed_key = RedisModule_CreateStringPrintf(ctx, K_PREFIX, key_string);
 
+        pthread_rwlock_wrlock(&lock_rw);
         indexUnderKey(op, indexed_key_value, ts_key);
         indexUnderKey(op, indexed_key, ts_key);
+        pthread_rwlock_unlock(&lock_rw);
 
         RedisModule_FreeString(ctx, indexed_key_value);
         RedisModule_FreeString(ctx, indexed_key);
@@ -220,6 +225,8 @@ RedisModuleDict *GetPredicateKeysDict(RedisModuleCtx *ctx, QueryPredicate *predi
     /*
      * Return the dictionary of all the keys that match the predicate.
      */
+
+    pthread_rwlock_rdlock(&lock_rw);
     RedisModuleDict *currentLeaf = NULL;
     RedisModuleString *index_key;
     size_t _s;
@@ -252,6 +259,7 @@ RedisModuleDict *GetPredicateKeysDict(RedisModuleCtx *ctx, QueryPredicate *predi
             }
         }
     }
+    pthread_rwlock_unlock(&lock_rw);
     return currentLeaf;
 }
 
