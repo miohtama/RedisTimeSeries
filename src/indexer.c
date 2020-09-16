@@ -23,10 +23,12 @@ typedef enum
     Indexer_Remove
 } INDEXER_OPERATION_T;
 
-pthread_rwlock_t lock_rw = PTHREAD_RWLOCK_INITIALIZER;
+static pthread_rwlock_t lock_rw;
 
 void IndexInit() {
     labelsIndex = RedisModule_CreateDict(NULL);
+    int res = pthread_rwlock_init(&lock_rw, NULL);
+    printf("lock %d\n", res);
 }
 
 void FreeLabels(void *value, size_t labelsCount) {
@@ -249,6 +251,7 @@ RedisModuleDict *GetPredicateKeysDict(RedisModuleCtx *ctx, QueryPredicate *predi
             if (singleEntryLeaf != NULL) {
                 // if there's only 1 item left to fetch from the index we can just return it
                 if (unioned_count == 0 && predicate->valueListCount - i == 1) {
+                    pthread_rwlock_unlock(&lock_rw);
                     return singleEntryLeaf;
                 }
                 if (currentLeaf == NULL) {
