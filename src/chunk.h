@@ -1,5 +1,5 @@
 /*
-* Copyright 2018-2019 Redis Labs Ltd. and Contributors
+* Copyright 2018-2020 Redis Labs Ltd. and Contributors
 *
 * This file is available under the Redis Labs Source Available License Agreement
 */
@@ -10,12 +10,8 @@
 #include "generic_chunk.h"
 #include <sys/types.h>
 
-typedef struct Chunk {
-    timestamp_t base_timestamp;
-    Sample *samples;
-    unsigned int num_samples;
-    size_t size;
-} Chunk;
+/* Incomplete structures for compiler checks but opaque access. */
+typedef struct Chunk Chunk;
 
 typedef struct ChunkIterator {
     Chunk *chunk;
