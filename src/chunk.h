@@ -25,12 +25,17 @@ Chunk_t *Uncompressed_NewChunk(size_t sampleCount);
 void Uncompressed_FreeChunk(Chunk_t *chunk);
 
 /**
- * TODO: describe me
+ * Split the chunk in half, returning a new chunk with the right-side of the current chunk
+ * The input chunk is trimmed to retain the left-most part
  * @param chunk
- * @return
+ * @return new chunk with the right-most splited in half samples
  */
 Chunk_t *Uncompressed_SplitChunk(Chunk_t *chunk);
+
 size_t Uncompressed_GetChunkSize(Chunk_t *chunk, bool includeStruct);
+
+
+ChunkResult Uncompressed_AddSampleOptimized(Chunk_t *chunk, u_int64_t timestamp, double value);
 
 /**
  * TODO: describe me

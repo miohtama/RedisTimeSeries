@@ -51,30 +51,14 @@ Chunk_t *Uncompressed_SplitChunk(Chunk_t *chunk) {
     for (size_t i = 0; i < newChunkNumSamples; i++) {
         const u_int64_t ts = curChunk->samples_ts[currentChunkNumSamples + i];
         const double v = curChunk->samples_values[currentChunkNumSamples + i];
-        Sample s1 = { .timestamp = ts, .value = v };
-        Uncompressed_AddSample(newChunk, &s1);
+        Uncompressed_AddSampleOptimized(newChunk, ts, v);
     }
-
-    // newChunk->base_timestamp = curChunk->samples_ts[currentChunkNumSamples];
-
-    // // calculate the position in bytes from which the new Chunk timestamps start
-    // const size_t new_ts_size = (newChunkNumSamples * sizeof(u_int64_t));
-    // memcpy(newChunk->samples_ts, &curChunk->samples_ts[currentChunkNumSamples + 1], new_ts_size);
-
-    // const size_t new_values_size = (newChunkNumSamples * sizeof(double));
-    // memcpy(newChunk->samples_values,
-    //        &curChunk->samples_values[currentChunkNumSamples + 1],
-    //        new_values_size);
-
-    // newChunk->num_samples = newChunkNumSamples;
-    // assert(newChunk->size == (new_ts_size + new_values_size));
 
     // update current chunk
     const size_t old_ts_size = (currentChunkNumSamples * sizeof(u_int64_t));
     const size_t old_values_size = (currentChunkNumSamples * sizeof(double));
     curChunk->num_samples = currentChunkNumSamples;
     curChunk->size = currentChunkNumSamples * SAMPLE_SIZE;
-    // assert(newChunk->size == (new_values_size + new_ts_size));
     assert(curChunk->size == (old_values_size + old_ts_size));
     curChunk->samples_ts = realloc(curChunk->samples_ts, old_ts_size);
     curChunk->samples_values = realloc(curChunk->samples_values, old_values_size);
@@ -125,7 +109,7 @@ int Uncompressed_GetSampleTimestampAtPos(Chunk_t *chunk, size_t pos, u_int64_t *
     return result;
 }
 
-ChunkResult Uncompressed_AddSample(Chunk_t *chunk, Sample *sample) {
+ChunkResult Uncompressed_AddSampleOptimized(Chunk_t *chunk, u_int64_t timestamp, double value) {
     Chunk *regChunk = (Chunk *)chunk;
     if (IsChunkFull(regChunk)) {
         return CR_END;
@@ -133,13 +117,17 @@ ChunkResult Uncompressed_AddSample(Chunk_t *chunk, Sample *sample) {
 
     if (regChunk->num_samples == 0) {
         // initialize base_timestamp
-        regChunk->base_timestamp = sample->timestamp;
+        regChunk->base_timestamp = timestamp;
     }
     const size_t pos = regChunk->num_samples;
-    regChunk->samples_ts[pos] = sample->timestamp;
-    regChunk->samples_values[pos] = sample->value;
+    regChunk->samples_ts[pos] = timestamp;
+    regChunk->samples_values[pos] = value;
     regChunk->num_samples++;
     return CR_OK;
+}
+
+ChunkResult Uncompressed_AddSample(Chunk_t *chunk, Sample *sample) {
+    return Uncompressed_AddSampleOptimized(chunk, sample->timestamp, sample->value);
 }
 
 /**
@@ -157,21 +145,13 @@ static void upsertChunk(Chunk *chunk, size_t idx, u_int64_t ts, double value) {
         chunk->samples_ts = realloc(chunk->samples_ts, new_ts_size);
         chunk->samples_values = realloc(chunk->samples_values, new_values_size);
     }
-    // const size_t number_of_samples_move = chunk->num_samples - idx;
     for (size_t i = chunk->num_samples; i > idx; i--) {
         chunk->samples_ts[i] = chunk->samples_ts[i - 1];
+    }
+    chunk->samples_ts[idx] = ts;
+    for (size_t i = chunk->num_samples; i > idx; i--) {
         chunk->samples_values[i] = chunk->samples_values[i - 1];
     }
-
-    // if (idx < chunk->num_samples) { // sample is not last
-    //     // calculate the position in bytes from which the new Chunk timestamps start
-    //     const size_t ts_move_size = (number_of_samples_move * sizeof(u_int64_t));
-    //     const size_t values_move_size = (number_of_samples_move * sizeof(double));
-
-    //     memmove(&chunk->samples_ts[idx + 1], &chunk->samples_ts[idx], ts_move_size);
-    //     memmove(&chunk->samples_values[idx + 1], &chunk->samples_values[idx], values_move_size);
-    // }
-    chunk->samples_ts[idx] = ts;
     chunk->samples_values[idx] = value;
     chunk->num_samples++;
 }
