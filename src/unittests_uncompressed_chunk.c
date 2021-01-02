@@ -108,7 +108,6 @@ MU_TEST(test_Uncompressed_Uncompressed_UpsertSample_DuplicatePolicy) {
 
     int size = 0;
     double value;
-    u_int64_t ts;
     // We're forcing the chunk to insert a duplicate and test different policies
     // DP_BLOCK should not change old sample
     rv = Uncompressed_UpsertSample(&uCtx, &size, DP_BLOCK);

@@ -113,6 +113,10 @@ _SOURCES=\
 	module.c \
 	parse_policies.c \
 	rdb.c \
+	rax.c \
+	query_language.c \
+	reply.c \
+	resultset.c \
 	tsdb.c
 
 _TEST_SOURCES=\
@@ -124,6 +128,7 @@ _TEST_SOURCES=\
 	endianconv.c
 
 SOURCES=$(addprefix $(SRCDIR)/,$(_SOURCES))
+HEADERS=$(patsubst $(SRCDIR)/%.c,$(SRCDIR)/%.h,$(SOURCES))
 OBJECTS=$(patsubst $(SRCDIR)/%.c,$(BINDIR)/%.o,$(SOURCES))
 
 TEST_SOURCES=$(addprefix $(SRCDIR)/,$(_TEST_SOURCES))
@@ -153,10 +158,12 @@ docker_lint:
 
 lint:
 	clang-format -Werror -n $(SOURCES)
+	clang-format -Werror -n $(HEADERS)
 	clang-format -Werror -n $(TEST_SOURCES)
 
 format:
 	clang-format -i $(SOURCES)
+	clang-format -i $(HEADERS)
 	clang-format -i $(TEST_SOURCES)
 
 clean:
