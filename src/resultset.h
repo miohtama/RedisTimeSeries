@@ -4,6 +4,7 @@
  * This file is available under the Redis Labs Source Available License Agreement
  */
 #include "consts.h"
+#include "tsdb.h"
 
 #ifndef REDISTIMESERIES_RESULTSET_H
 #define REDISTIMESERIES_RESULTSET_H
@@ -13,10 +14,30 @@ typedef struct TS_ResultSet TS_ResultSet;
 
 TS_ResultSet *createResultSet();
 
+int groupbyLabel(TS_ResultSet *r, char *label);
+
+int applyReducerToResultSet(TS_ResultSet *r, char *reducer);
+
+int applyRangeToResultSet(TS_ResultSet *r,
+                          api_timestamp_t start_ts,
+                          api_timestamp_t end_ts,
+                          AggregationClass *aggObject,
+                          int64_t time_delta,
+                          long long maxResults,
+                          bool rev);
+
+int addSerieToResultSet(TS_ResultSet *r, Series *serie, const char *name);
+
+void replyResultSet(RedisModuleCtx *ctx,
+                    TS_ResultSet *r,
+                    bool withlabels,
+                    api_timestamp_t start_ts,
+                    api_timestamp_t end_ts,
+                    AggregationClass *aggObject,
+                    int64_t time_delta,
+                    long long maxResults,
+                    bool rev);
+
 void freeResultSet(TS_ResultSet *r);
 
-// int parseGrouperAndReducer(RedisModuleCtx *ctx,
-//                               RedisModuleString **argv,
-//                               int argc);
-
-#endif //REDISTIMESERIES_RESULTSET_H
+#endif // REDISTIMESERIES_RESULTSET_H

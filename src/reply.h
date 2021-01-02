@@ -11,6 +11,15 @@
 #ifndef REDISTIMESERIES_REPLY_H
 #define REDISTIMESERIES_REPLY_H
 
+int ApplySerieRangeIntoNewSerie(Series **dest,
+                                Series *source,
+                                api_timestamp_t start_ts,
+                                api_timestamp_t end_ts,
+                                AggregationClass *aggObject,
+                                int64_t time_delta,
+                                long long maxResults,
+                                bool rev);
+
 int ReplySeriesRange(RedisModuleCtx *ctx,
                      Series *series,
                      api_timestamp_t start_ts,

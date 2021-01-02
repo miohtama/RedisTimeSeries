@@ -9,6 +9,97 @@
 #include "redismodule.h"
 #include "tsdb.h"
 
+int ApplySerieRangeIntoNewSerie(Series **dest,
+                                Series *source,
+                                api_timestamp_t start_ts,
+                                api_timestamp_t end_ts,
+                                AggregationClass *aggObject,
+                                int64_t time_delta,
+                                long long maxResults,
+                                bool rev) {
+    Sample sample;
+    CreateCtx cCtx = { 0 };
+    cCtx.labels = malloc(sizeof(Label) * source->labelsCount);
+    // todo: deep copy labels function
+    for (int l = 0; l < source->labelsCount; l++) {
+        cCtx.labels[l].key = RedisModule_CreateStringFromString(NULL, source->labels[l].key);
+        cCtx.labels[l].value = RedisModule_CreateStringFromString(NULL, source->labels[l].value);
+    }
+
+    Series *new = NewSeries(RedisModule_CreateStringFromString(NULL, source->keyName), &cCtx);
+    void *context = NULL;
+    long long arraylen = 0;
+    timestamp_t last_agg_timestamp;
+
+    // In case a retention is set shouldn't return chunks older than the retention
+    // TODO: move to parseRangeArguments(?)
+    if (source->retentionTime) {
+        start_ts = source->lastTimestamp > source->retentionTime
+                       ? max(start_ts, source->lastTimestamp - source->retentionTime)
+                       : start_ts;
+        // if new start_ts > end_ts, there are no results to return
+        if (start_ts > end_ts) {
+            *dest = new;
+            return REDISMODULE_OK;
+        }
+    }
+
+    SeriesIterator iterator = SeriesQuery(source, start_ts, end_ts, rev);
+    if (iterator.series == NULL) {
+        *dest = new;
+        return REDISMODULE_OK;
+    }
+
+    if (aggObject == NULL) {
+        // No aggregation
+        while (SeriesIteratorGetNext(&iterator, &sample) == CR_OK &&
+               (maxResults == -1 || arraylen < maxResults)) {
+            SeriesAddSample(new, sample.timestamp, sample.value);
+        }
+    } else {
+        bool firstSample = TRUE;
+        context = aggObject->createContext();
+        // setting the first timestamp of the aggregation
+        timestamp_t init_ts = (rev == false)
+                                  ? source->funcs->GetFirstTimestamp(iterator.currentChunk)
+                                  : source->funcs->GetLastTimestamp(iterator.currentChunk);
+        last_agg_timestamp = init_ts - (init_ts % time_delta);
+
+        while (SeriesIteratorGetNext(&iterator, &sample) == CR_OK &&
+               (maxResults == -1 || arraylen < maxResults)) {
+            if ((iterator.reverse == false &&
+                 sample.timestamp >= last_agg_timestamp + time_delta) ||
+                (iterator.reverse == true && sample.timestamp < last_agg_timestamp)) {
+                if (firstSample == FALSE) {
+                    double value;
+                    if (aggObject->finalize(context, &value) == TSDB_OK) {
+                        SeriesAddSample(new, last_agg_timestamp, value);
+                        aggObject->resetContext(context);
+                    }
+                }
+                last_agg_timestamp = sample.timestamp - (sample.timestamp % time_delta);
+            }
+            firstSample = FALSE;
+            aggObject->appendValue(context, sample.value);
+        }
+    }
+    SeriesIteratorClose(&iterator);
+
+    if (aggObject != NULL) {
+        if (arraylen != maxResults) {
+            // reply last bucket of data
+            double value;
+            if (aggObject->finalize(context, &value) == TSDB_OK) {
+                SeriesAddSample(new, last_agg_timestamp, value);
+                aggObject->resetContext(context);
+            }
+        }
+        aggObject->freeContext(context);
+    }
+    *dest = new;
+    return REDISMODULE_OK;
+}
+
 int ReplySeriesRange(RedisModuleCtx *ctx,
                      Series *series,
                      api_timestamp_t start_ts,

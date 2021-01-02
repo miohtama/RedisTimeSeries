@@ -229,9 +229,35 @@ int TSDB_generic_mrange(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (parseCountArgument(ctx, argv, argc, &count) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
     }
+    TS_ResultSet *resultset = createResultSet();
 
-    const size_t query_count = argc - 1 - filter_location;
     const int withlabels_location = RMUtil_ArgIndex("WITHLABELS", argv, argc);
+
+    const int groupby_location = RMUtil_ArgIndex("GROUPBY", argv, argc);
+    RedisModuleString *groupbylabel = NULL;
+    RedisModuleString *reducerstr = NULL;
+    if (groupby_location > 0) {
+        const int reduce_location = RMUtil_ArgIndex("REDUCE", argv, argc);
+        // If we've detected a groupby but not a reduce
+        // or we've detected a groupby by the total args don't match
+        if (reduce_location < 0 || (argc - groupby_location != 4)) {
+            return RedisModule_WrongArity(ctx);
+        }
+        groupbylabel = argv[groupby_location + 1];
+        reducerstr = argv[reduce_location + 1];
+        RedisModule_Log(ctx,
+                        "warning",
+                        "groupby %s reduce %s",
+                        RedisModule_StringPtrLen(groupbylabel, NULL),
+                        RedisModule_StringPtrLen(reducerstr, NULL));
+        groupbyLabel(resultset, RedisModule_Strdup(RedisModule_StringPtrLen(groupbylabel, NULL)));
+    }
+
+    // If we have GROUPBY <label> REDUCE <reducer> then labels arguments
+    // are only up to (GROUPBY pos) - 1.
+    const size_t last_filter_pos = groupby_location > 0 ? groupby_location - 1 : argc - 1;
+    const size_t query_count = last_filter_pos - filter_location;
+
     QueryPredicate *queries = RedisModule_PoolAlloc(ctx, sizeof(QueryPredicate) * query_count);
     if (parseLabelListFromArgs(ctx, argv, filter_location + 1, query_count, queries) ==
         TSDB_ERROR) {
@@ -246,14 +272,11 @@ int TSDB_generic_mrange(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     RedisModuleDict *result = QueryIndex(ctx, queries, query_count);
 
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-
     RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(result, "^", NULL, 0);
     char *currentKey;
     size_t currentKeyLen;
     long long replylen = 0;
     Series *series;
-    TS_ResultSet *resultset = createResultSet();
 
     while ((currentKey = RedisModule_DictNextC(iter, &currentKeyLen, NULL)) != NULL) {
         RedisModuleKey *key;
@@ -270,19 +293,26 @@ int TSDB_generic_mrange(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
             iter = RedisModule_DictIteratorStartC(result, ">", currentKey, currentKeyLen);
             continue;
         }
-        RedisModule_ReplyWithArray(ctx, 3);
-        RedisModule_ReplyWithStringBuffer(ctx, currentKey, currentKeyLen);
-        if (withlabels_location >= 0) {
-            ReplyWithSeriesLabels(ctx, series);
-        } else {
-            RedisModule_ReplyWithArray(ctx, 0);
-        }
-        ReplySeriesRange(ctx, series, start_ts, end_ts, aggObject, time_delta, count, rev);
-        replylen++;
+        addSerieToResultSet(resultset, series, RedisModule_StringPtrLen(series->keyName, NULL));
         RedisModule_CloseKey(key);
     }
     RedisModule_DictIteratorStop(iter);
-    RedisModule_ReplySetArrayLength(ctx, replylen);
+    if (groupby_location > 0) {
+        // apply the range and per-serie aggregations
+        applyRangeToResultSet(resultset, start_ts, end_ts, aggObject, time_delta, count, rev);
+        applyReducerToResultSet(resultset,
+                                RedisModule_Strdup(RedisModule_StringPtrLen(groupbylabel, NULL)));
+    }
+    replyResultSet(ctx,
+                   resultset,
+                   withlabels_location > 0 ? true : false,
+                   start_ts,
+                   end_ts,
+                   aggObject,
+                   time_delta,
+                   count,
+                   rev);
+
     freeResultSet(resultset);
     return REDISMODULE_OK;
 }

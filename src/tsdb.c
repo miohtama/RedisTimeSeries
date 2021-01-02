@@ -189,6 +189,18 @@ size_t SeriesGetChunksSize(Series *series) {
     return size;
 }
 
+char *SeriesGetCStringLabelValue(const Series *series, const char *labelKey) {
+    char *result = NULL;
+    for (int i = 0; i < series->labelsCount; i++) {
+        const char *currLabel = RedisModule_StringPtrLen(series->labels[i].key, NULL);
+        if (strcmp(currLabel, labelKey) == 0) {
+            result = strdup(RedisModule_StringPtrLen(series->labels[i].value, NULL));
+            break;
+        }
+    }
+    return result;
+}
+
 size_t SeriesMemUsage(const void *value) {
     Series *series = (Series *)value;
 
