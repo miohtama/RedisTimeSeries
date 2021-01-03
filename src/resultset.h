@@ -16,7 +16,11 @@ TS_ResultSet *createResultSet();
 
 int groupbyLabel(TS_ResultSet *r, char *label);
 
-int applyReducerToResultSet(TS_ResultSet *r, char *reducer);
+int setLabelKey(TS_ResultSet *r, const char *labelKey);
+
+int setLabelValue(TS_ResultSet *r, const char *label);
+
+int applyReducerToResultSet(TS_ResultSet *r, MultiSeriesReduceOp reducerOp);
 
 int applyRangeToResultSet(TS_ResultSet *r,
                           api_timestamp_t start_ts,

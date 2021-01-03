@@ -6,6 +6,7 @@
 #ifndef TSDB_H
 #define TSDB_H
 
+#include "assert.h"
 #include "compaction.h"
 #include "consts.h"
 #include "generic_chunk.h"
@@ -52,6 +53,13 @@ typedef struct Series
     DuplicatePolicy duplicatePolicy;
 } Series;
 
+typedef enum MultiSeriesReduceOp
+{
+    MultiSeriesReduceOp_Min,
+    MultiSeriesReduceOp_Max,
+    MultiSeriesReduceOp_Sum,
+} MultiSeriesReduceOp;
+
 typedef struct SeriesIterator
 {
     Series *series;
@@ -75,6 +83,8 @@ void FreeCompactionRule(void *value);
 
 size_t SeriesMemUsage(const void *value);
 
+int MultiSerieReduce(Series *dest, Series *source, MultiSeriesReduceOp op);
+
 int SeriesAddSample(Series *series, api_timestamp_t timestamp, double value);
 
 int SeriesUpsertSample(Series *series,
@@ -83,6 +93,8 @@ int SeriesUpsertSample(Series *series,
                        DuplicatePolicy dp_override);
 
 int SeriesUpdateLastSample(Series *series);
+
+bool SeriesGetValueAtTimestamp(Series *series, timestamp_t ts, double *value);
 
 int SeriesDeleteRule(Series *series, RedisModuleString *destKey);
 

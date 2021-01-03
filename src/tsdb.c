@@ -232,6 +232,54 @@ size_t SeriesGetNumSamples(const Series *series) {
     return numSamples;
 }
 
+int MultiSerieReduce(Series *dest, Series *source, MultiSeriesReduceOp op) {
+    Sample sample;
+    long long skipped;
+    timestamp_t start_ts = getFirstValidTimestamp(source, &skipped);
+    timestamp_t end_ts = source->lastTimestamp;
+    SeriesIterator iterator = SeriesQuery(source, start_ts, end_ts, false);
+    DuplicatePolicy dp;
+    switch (op) {
+        case MultiSeriesReduceOp_Max:
+            dp = DP_MAX;
+            break;
+        case MultiSeriesReduceOp_Min:
+            dp = DP_MIN;
+            break;
+        case MultiSeriesReduceOp_Sum:
+            dp = DP_SUM;
+            break;
+    }
+    while (SeriesIteratorGetNext(&iterator, &sample) == CR_OK) {
+        const int rv = SeriesUpsertSample(dest, sample.timestamp, sample.value, dp);
+        double newV;
+        double oldV;
+        SeriesGetValueAtTimestamp(source, sample.timestamp, &oldV);
+        SeriesGetValueAtTimestamp(dest, sample.timestamp, &newV);
+        printf("src: %s dest: %s; ts %ld v %f. Origin %f New Value %f\n",
+               RedisModule_StringPtrLen(source->keyName, NULL),
+               RedisModule_StringPtrLen(dest->keyName, NULL),
+               sample.timestamp,
+               sample.value,
+               oldV,
+               newV);
+        assert(rv == CR_OK);
+    }
+    SeriesIteratorClose(&iterator);
+}
+
+bool SeriesGetValueAtTimestamp(Series *series, timestamp_t ts, double *value) {
+    bool result = false;
+    Sample sample;
+    SeriesIterator iterator = SeriesQuery(series, ts, ts, false);
+    if (SeriesIteratorGetNext(&iterator, &sample) == CR_OK) {
+        assert(ts == sample.timestamp);
+        *value = sample.value;
+        result = true;
+    }
+    return result;
+}
+
 static void upsertCompaction(Series *series, UpsertCtx *uCtx) {
     CompactionRule *rule = series->rules;
     RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);

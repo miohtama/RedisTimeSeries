@@ -235,7 +235,7 @@ int TSDB_generic_mrange(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
     const int groupby_location = RMUtil_ArgIndex("GROUPBY", argv, argc);
     RedisModuleString *groupbylabel = NULL;
-    RedisModuleString *reducerstr = NULL;
+    MultiSeriesReduceOp reducerOp;
     if (groupby_location > 0) {
         const int reduce_location = RMUtil_ArgIndex("REDUCE", argv, argc);
         // If we've detected a groupby but not a reduce
@@ -244,12 +244,21 @@ int TSDB_generic_mrange(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
             return RedisModule_WrongArity(ctx);
         }
         groupbylabel = argv[groupby_location + 1];
-        reducerstr = argv[reduce_location + 1];
+        const char *reducerstr = RedisModule_StringPtrLen(argv[reduce_location + 1], NULL);
+
+        if (strncasecmp(reducerstr, "sum", 3) == 0) {
+            reducerOp = MultiSeriesReduceOp_Sum;
+        } else if (strncasecmp(reducerstr, "max", 3) == 0) {
+            reducerOp = MultiSeriesReduceOp_Max;
+        } else if (strncasecmp(reducerstr, "min", 3) == 0) {
+            reducerOp = MultiSeriesReduceOp_Min;
+        }
+
         RedisModule_Log(ctx,
                         "warning",
                         "groupby %s reduce %s",
                         RedisModule_StringPtrLen(groupbylabel, NULL),
-                        RedisModule_StringPtrLen(reducerstr, NULL));
+                        reducerstr);
         groupbyLabel(resultset, RedisModule_Strdup(RedisModule_StringPtrLen(groupbylabel, NULL)));
     }
 
@@ -300,8 +309,7 @@ int TSDB_generic_mrange(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     if (groupby_location > 0) {
         // apply the range and per-serie aggregations
         applyRangeToResultSet(resultset, start_ts, end_ts, aggObject, time_delta, count, rev);
-        applyReducerToResultSet(resultset,
-                                RedisModule_Strdup(RedisModule_StringPtrLen(groupbylabel, NULL)));
+        applyReducerToResultSet(resultset, reducerOp);
     }
     replyResultSet(ctx,
                    resultset,

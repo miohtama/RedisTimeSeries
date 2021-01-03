@@ -7,83 +7,114 @@
 #include "resultset.h"
 
 #include "rax.h"
+#include "reply.h"
 #include "string.h"
 #include "tsdb.h"
 
 #include "rmutil/alloc.h"
 
+typedef enum
+{
+    GroupType_Series,
+    GroupType_ResultSet,
+} GroupType;
+
 typedef struct TS_ResultSet
 {
     rax *groups;
-    char *groupbylabel;
-    uint64_t total_groups;
+    GroupType groupsType;
+    char *labelkey;
+    char *labelvalue;
 } TS_ResultSet;
 
 TS_ResultSet *createResultSet() {
     TS_ResultSet *r = malloc(sizeof(TS_ResultSet));
     r->groups = raxNew();
-    r->groupbylabel = NULL;
-    r->total_groups = 0;
+    r->groupsType = GroupType_Series;
+    r->labelkey = NULL;
+    r->labelvalue = NULL;
     return r;
 }
 
-int groupbyLabel(TS_ResultSet *r, char *label) {
-    r->groupbylabel = strdup(label);
+int setLabelValue(TS_ResultSet *r, const char *label) {
+    r->labelvalue = strdup(label);
     return true;
 }
 
-int applyReducerToResultSet(TS_ResultSet *r, char *reducer) {
-    // no need to apply reducer to single series
-    // if (r->groupbylabel == NULL) {
-    //     return true;
+int setLabelKey(TS_ResultSet *r, const char *labelkey) {
+    r->labelkey = strdup(labelkey);
+    return true;
+}
 
-    // Labels:
-    // <label>=<groupbyvalue>
-    // __reducer__=<reducer>
-    // __source__=key1,key2,key3
-    CreateCtx cCtx = { 0 };
-    cCtx.labels = malloc(sizeof(Label) * 3);
-    cCtx.labels[0].key = RedisModule_CreateStringPrintf(NULL, "%s", r->groupbylabel);
-    cCtx.labels[0].value = RedisModule_CreateStringPrintf(NULL, "%s", "aaaa");
-    cCtx.labels[1].key = RedisModule_CreateStringPrintf(NULL, "__reducer__");
-    cCtx.labels[1].value = RedisModule_CreateStringPrintf(NULL, "max");
-    cCtx.labels[2].key = RedisModule_CreateStringPrintf(NULL, "__source__");
-    cCtx.labels[2].value = RedisModule_CreateStringPrintf(NULL, "");
-    cCtx.labelsCount = 3;
+int groupbyLabel(TS_ResultSet *r, char *label) {
+    r->groupsType = GroupType_ResultSet;
+    r->labelkey = strdup(label);
+    return true;
+}
 
-    raxIterator ri;
-    raxStart(&ri, r->groups);
-    raxSeek(&ri, "^", NULL, 0);
-    char *source_keys = strdup("");
-    Series *new =
-        NewSeries(RedisModule_CreateStringPrintf(NULL, "%s=%s", r->groupbylabel, "aaaa"), &cCtx);
-    double value = 0.0;
-    while (raxNext(&ri)) {
-        if (r->groupbylabel != NULL) {
+int applyReducerToResultSet(TS_ResultSet *r, MultiSeriesReduceOp reducerOp) {
+    if (r->groupsType == GroupType_Series) {
+        // Labels:
+        // <label>=<groupbyvalue>
+        // __reducer__=<reducer>
+        // __source__=key1,key2,key3
+        Label *labels = malloc(sizeof(Label) * 3);
+        labels[0].key = RedisModule_CreateStringPrintf(NULL, "%s", r->labelkey);
+        labels[0].value = RedisModule_CreateStringPrintf(NULL, "%s", r->labelvalue);
+        labels[1].key = RedisModule_CreateStringPrintf(NULL, "__reducer__");
+        labels[1].value = RedisModule_CreateStringPrintf(NULL, "max");
+        labels[2].key = RedisModule_CreateStringPrintf(NULL, "__source__");
+        labels[2].value = RedisModule_CreateStringPrintf(NULL, "");
+
+        const uint64_t total_series = raxSize(r->groups);
+        uint64_t at_pos = 0;
+        const size_t serie_name_len = strlen(r->labelkey) + strlen(r->labelvalue) + 1;
+        char *serie_name = (char *)malloc(serie_name_len * sizeof(char));
+        sprintf(serie_name, "%s=%s", r->labelkey, r->labelvalue);
+        raxIterator ri;
+        raxStart(&ri, r->groups);
+        // ^ seek the smallest element of the radix tree.
+        raxSeek(&ri, "^", NULL, 0);
+        raxNext(&ri);
+        // Use the first serie as the initial data
+        Series *reduced = (Series *)ri.data;
+        RedisModule_StringAppendBuffer(NULL, labels[2].value, ri.key, ri.key_len);
+        if (raxRemove(r->groups, ri.key, ri.key_len, NULL)) {
+            raxSeek(&ri, ">", ri.key, ri.key_len);
+        }
+        at_pos++;
+
+        while (raxNext(&ri)) {
+            Series *source = (Series *)ri.data;
+            MultiSerieReduce(reduced, source, reducerOp);
+            if (at_pos > 0 && at_pos < total_series) {
+                RedisModule_StringAppendBuffer(NULL, labels[2].value, ",", 1);
+            }
+            RedisModule_StringAppendBuffer(NULL, labels[2].value, ri.key, ri.key_len);
+            at_pos++;
+            if (raxRemove(r->groups, ri.key, ri.key_len, NULL)) {
+                raxSeek(&ri, ">", ri.key, ri.key_len);
+            }
+        }
+        raxStop(&ri);
+        reduced->keyName = RedisModule_CreateStringPrintf(NULL, "%s", serie_name);
+        reduced->labels = labels;
+        reduced->labelsCount = 3;
+        raxInsert(r->groups, (unsigned char *)serie_name, serie_name_len, reduced, reduced);
+    } else {
+        raxIterator ri;
+        raxStart(&ri, r->groups);
+        // ^ seek the smallest element of the radix tree.
+        raxSeek(&ri, "^", NULL, 0);
+        while (raxNext(&ri)) {
             TS_ResultSet *innerResultSet = (TS_ResultSet *)ri.data;
-            applyReducerToResultSet(innerResultSet, reducer);
+            applyReducerToResultSet(innerResultSet, reducerOp);
             // we should now have a serie per label
             // TODO: re-seek and reduce
             // innerResultSet->groupbylabel = NULL;
-        } else {
-            raxInsert(r->groups, (unsigned char *)ri.key, ri.key_len, new, NULL);
-
-            // Series *newRangeSerie;
-            // Series *originalCurrentSerie;
-            // originalCurrentSerie = (Series *)ri.data;
-            // ApplySerieRangeIntoNewSerie(&newRangeSerie,
-            //                             originalCurrentSerie,
-            //                             start_ts,
-            //                             end_ts,
-            //                             aggObject,
-            //                             time_delta,
-            //                             maxResults,
-            //                             rev);
-            // raxInsert(r->groups, (unsigned char *)ri.key, ri.key_len, newRangeSerie, NULL);
         }
+        raxStop(&ri);
     }
-    raxStop(&ri);
-    // cCtx.labels[2].value = RedisModule_CreateStringPrintf(NULL, "%s");
     return true;
 }
 
@@ -101,7 +132,7 @@ int applyRangeToResultSet(TS_ResultSet *r,
 
     double value = 0.0;
     while (raxNext(&ri)) {
-        if (r->groupbylabel != NULL) {
+        if (r->groupsType == GroupType_ResultSet) {
             TS_ResultSet *innerResultSet = (TS_ResultSet *)ri.data;
             applyRangeToResultSet(
                 innerResultSet, start_ts, end_ts, aggObject, time_delta, maxResults, rev);
@@ -117,6 +148,7 @@ int applyRangeToResultSet(TS_ResultSet *r,
                                         time_delta,
                                         maxResults,
                                         rev);
+            // replace the serie with the range trimmed one
             raxInsert(r->groups, (unsigned char *)ri.key, ri.key_len, newRangeSerie, NULL);
         }
     }
@@ -129,26 +161,26 @@ int addSerieToResultSet(TS_ResultSet *r, Series *serie, const char *name) {
     int result = false;
     // If we're grouping by label then the rax associated values are TS_ResultSet
     // If we're grouping by name ( groupbylabel == NULL ) then the rax associated values are Series
-    if (r->groupbylabel != NULL) {
-        char *labelValue = SeriesGetCStringLabelValue(serie, r->groupbylabel);
+    if (r->groupsType == GroupType_ResultSet) {
+        char *labelValue = SeriesGetCStringLabelValue(serie, r->labelkey);
         const size_t labelLen = strlen(labelValue);
         printf("labelValue: %s\n", labelValue);
         TS_ResultSet *labelGroup = raxFind(r->groups, (unsigned char *)labelValue, labelLen);
         if (labelGroup == raxNotFound) {
             labelGroup = createResultSet();
-            r->total_groups++;
+            setLabelKey(labelGroup, r->labelkey);
+            setLabelValue(labelGroup, labelValue);
             raxInsert(r->groups, (unsigned char *)labelValue, labelLen, labelGroup, NULL);
             printf("creating new TS_ResultSet for label: %s\n", labelValue);
         }
         addSerieToResultSet(labelGroup, serie, name);
-        printf("Total series for label: %s : %d\n", labelValue, labelGroup->total_groups);
+        printf("Total series for label: %s : %d\n", labelValue, raxSize(r->groups));
     } else {
         // If a serie with that name already exists we return
         if (raxFind(r->groups, (unsigned char *)name, namelen) != raxNotFound) {
             return false;
         }
         raxInsert(r->groups, (unsigned char *)name, namelen, serie, NULL);
-        r->total_groups++;
     }
     return result;
 }
@@ -162,13 +194,13 @@ void replyResultSet(RedisModuleCtx *ctx,
                     int64_t time_delta,
                     long long maxResults,
                     bool rev) {
-    RedisModule_ReplyWithArray(ctx, r->total_groups);
+    RedisModule_ReplyWithArray(ctx, raxSize(r->groups));
     raxIterator ri;
     raxStart(&ri, r->groups);
     raxSeek(&ri, "^", NULL, 0);
     Series *s;
     while (raxNext(&ri)) {
-        if (r->groupbylabel != NULL) {
+        if (r->groupsType == GroupType_ResultSet) {
             TS_ResultSet *innerResultSet = (TS_ResultSet *)ri.data;
             replyResultSet(ctx,
                            innerResultSet,
@@ -198,14 +230,15 @@ void freeResultSet(TS_ResultSet *r) {
     if (r == NULL)
         return;
     if (r->groups) {
-        // if
-        if (r->groupbylabel) {
+        if (r->groupsType == GroupType_ResultSet) {
             raxFreeWithCallback(r->groups, freeResultSet);
         } else {
             raxFree(r->groups);
         }
     }
-    if (r->groupbylabel)
-        free(r->groupbylabel);
+    if (r->labelkey)
+        free(r->labelkey);
+    if (r->labelvalue)
+        free(r->labelvalue);
     free(r);
 }
