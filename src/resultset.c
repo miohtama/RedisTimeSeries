@@ -58,11 +58,23 @@ int applyReducerToResultSet(TS_ResultSet *r, MultiSeriesReduceOp reducerOp) {
         // <label>=<groupbyvalue>
         // __reducer__=<reducer>
         // __source__=key1,key2,key3
+        char *reducer_str = NULL;
+        switch (reducerOp) {
+            case MultiSeriesReduceOp_Max:
+                reducer_str = "max";
+                break;
+            case MultiSeriesReduceOp_Min:
+                reducer_str = "min";
+                break;
+            case MultiSeriesReduceOp_Sum:
+                reducer_str = "sum";
+                break;
+        }
         Label *labels = malloc(sizeof(Label) * 3);
         labels[0].key = RedisModule_CreateStringPrintf(NULL, "%s", r->labelkey);
         labels[0].value = RedisModule_CreateStringPrintf(NULL, "%s", r->labelvalue);
         labels[1].key = RedisModule_CreateStringPrintf(NULL, "__reducer__");
-        labels[1].value = RedisModule_CreateStringPrintf(NULL, "max");
+        labels[1].value = RedisModule_CreateStringPrintf(NULL, reducer_str);
         labels[2].key = RedisModule_CreateStringPrintf(NULL, "__source__");
         labels[2].value = RedisModule_CreateStringPrintf(NULL, "");
 
