@@ -33,8 +33,8 @@ def test_issue_588():
 def test_automatic_timestamp():
     with Env().getConnection() as r:
         assert r.execute_command('TS.CREATE', 'tester')
-        curr_time = int(time.time() * 1000)
         response_timestamp = r.execute_command('TS.ADD', 'tester', '*', 1)
+        curr_time = int(time.time() * 1000)
         result = r.execute_command('TS.RANGE', 'tester', 0, int(time.time() * 1000))
         # test time difference is not more than 5 milliseconds
         assert result[0][0] - curr_time <= 5
